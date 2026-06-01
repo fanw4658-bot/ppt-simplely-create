@@ -1,0 +1,529 @@
+cat > /mnt/user-data/outputs/slide-maker.html << 'ENDOFFILE'
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Slide 快速演示工具</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0f0f0f; color: #e8e0d0; font-family: 'Helvetica Neue', sans-serif; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* ── 顶栏 ── */
+  #topbar { height: 52px; border-bottom: 1px solid #2a2a2a; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; flex-shrink: 0; gap: 8px; }
+  #topbar .logo { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 700; letter-spacing: -0.3px; flex-shrink: 0; }
+  #topbar .logo-box { width: 22px; height: 22px; background: #e8e0d0; border-radius: 4px; display: flex; align-items: center; justify-content: center; }
+  #topbar .logo-inner { width: 10px; height: 10px; background: #0f0f0f; border-radius: 1px; }
+  .slide-count { font-size: 13px; color: #666; }
+  .top-actions { display: flex; gap: 6px; flex-shrink: 0; }
+  .btn { padding: 6px 14px; border-radius: 6px; font-size: 13px; cursor: pointer; border: 1px solid #2a2a2a; background: transparent; color: #e8e0d0; }
+  .btn-primary { background: #e8e0d0; color: #0f0f0f; font-weight: 600; border: none; }
+  .btn:active { opacity: 0.7; }
+
+  /* ── 主体 ── */
+  #main { flex: 1; display: flex; overflow: hidden; }
+
+  /* ── 左：页面列表 ── */
+  #sidebar { width: 110px; border-right: 1px solid #2a2a2a; display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0; }
+  #slide-list { flex: 1; overflow-y: auto; padding: 10px 8px; display: flex; flex-direction: column; gap: 8px; }
+  .slide-thumb { aspect-ratio: 16/9; border-radius: 5px; border: 2px solid #2a2a2a; background: #0f0f0f; cursor: pointer; position: relative; overflow: hidden; transition: border-color 0.15s; flex-shrink: 0; }
+  .slide-thumb.active { border-color: #e8e0d0; }
+  .slide-thumb .thumb-num { position: absolute; top: 4px; left: 6px; font-size: 8px; color: #666; font-family: monospace; z-index: 2; }
+  .slide-thumb .thumb-title { position: absolute; bottom: 4px; left: 6px; right: 6px; font-size: 7px; color: #e8e0d0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; z-index: 2; font-weight: 600; }
+  .slide-thumb img.thumb-bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.3; }
+  .slide-thumb .del-btn { position: absolute; top: -4px; right: -4px; width: 14px; height: 14px; border-radius: 50%; background: #ff4444; border: none; color: #fff; font-size: 8px; cursor: pointer; display: none; align-items: center; justify-content: center; z-index: 3; }
+  .slide-thumb:hover .del-btn { display: flex; }
+  #add-slide { margin: 8px; padding: 8px 0; border-radius: 6px; border: 1px dashed #2a2a2a; background: transparent; color: #666; font-size: 13px; cursor: pointer; }
+  #add-slide:active { opacity: 0.6; }
+
+  /* ── 中：预览 ── */
+  #preview-area { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px; overflow: auto; }
+  #slide-preview { width: 100%; max-width: 680px; aspect-ratio: 16/9; border-radius: 10px; border: 1px solid #2a2a2a; background: #0f0f0f; overflow: hidden; position: relative; }
+  #auto-label { margin-top: 8px; font-size: 11px; color: #555; text-align: center; }
+
+  /* ── 右：编辑 ── */
+  #editor { width: 240px; border-left: 1px solid #2a2a2a; display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0; }
+  #img-panel { padding: 12px 14px; border-bottom: 1px solid #2a2a2a; flex-shrink: 0; }
+  #editor-scroll { flex: 1; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 12px; }
+  .label { font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 5px; }
+  textarea, input[type=text], input[type=url] { width: 100%; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px; color: #e8e0d0; padding: 7px 9px; font-size: 12px; outline: none; resize: none; line-height: 1.5; font-family: inherit; }
+  textarea:focus, input:focus { border-color: #444; }
+  .layout-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+  .layout-btn { padding: 6px 4px; border-radius: 5px; border: 1px solid #2a2a2a; background: transparent; color: #666; font-size: 11px; cursor: pointer; text-align: center; }
+  .layout-btn.active { border-color: #e8e0d0; color: #e8e0d0; background: rgba(232,224,208,0.08); }
+
+  /* 图片上传 */
+  #upload-zone { border: 1.5px dashed #2a2a2a; border-radius: 8px; padding: 16px 10px; text-align: center; cursor: pointer; color: #555; font-size: 12px; }
+  #upload-zone:hover, #upload-zone.dragover { border-color: #666; color: #888; }
+  #upload-zone .icon { font-size: 20px; margin-bottom: 4px; }
+  #img-preview-wrap { position: relative; border-radius: 6px; overflow: hidden; aspect-ratio: 16/9; }
+  #img-preview-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  #remove-img { position: absolute; top: 5px; right: 5px; background: rgba(0,0,0,0.65); border: none; color: #fff; border-radius: 4px; padding: 2px 7px; font-size: 10px; cursor: pointer; }
+  #auto-toggle-row { display: flex; align-items: center; justify-content: space-between; margin-top: 6px; }
+  #auto-toggle-row span { font-size: 11px; color: #666; }
+  .toggle { width: 30px; height: 17px; border-radius: 9px; background: #2a2a2a; position: relative; cursor: pointer; transition: background 0.2s; flex-shrink: 0; }
+  .toggle.on { background: #e8e0d0; }
+  .toggle .knob { position: absolute; top: 3px; width: 11px; height: 11px; border-radius: 50%; background: #666; transition: left 0.2s; }
+  .toggle.on .knob { left: 16px; background: #0f0f0f; }
+  .toggle.off .knob { left: 3px; }
+  #manual-layout { margin-top: 8px; display: none; }
+  #auto-result { font-size: 10px; color: #4ade80; margin-top: 5px; display: none; }
+
+  /* ── 演示模式 ── */
+  #present-mode { display: none; position: fixed; inset: 0; background: #000; flex-direction: column; align-items: center; justify-content: center; z-index: 100; }
+  #present-mode.visible { display: flex; }
+  #present-slide { width: min(90vw, 1100px); aspect-ratio: 16/9; position: relative; border-radius: 10px; overflow: hidden; }
+  #present-nav { display: flex; align-items: center; gap: 16px; margin-top: 20px; }
+  #present-nav button { background: none; border: 1px solid #333; color: #aaa; border-radius: 6px; padding: 7px 18px; cursor: pointer; font-size: 14px; }
+  #present-nav button:disabled { color: #333; border-color: #222; cursor: default; }
+  #present-counter { color: #444; font-size: 13px; font-family: monospace; }
+  #exit-present { position: absolute; top: 16px; right: 16px; background: none; border: 1px solid #333; color: #555; border-radius: 6px; padding: 5px 12px; cursor: pointer; font-size: 12px; }
+  #dot-nav { display: flex; gap: 5px; margin-top: 12px; }
+  .dot { height: 6px; border-radius: 3px; background: #333; cursor: pointer; transition: all 0.2s; }
+  .dot.active { background: #e8e0d0; }
+
+  /* ── 分享弹窗 ── */
+  #share-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); align-items: center; justify-content: center; z-index: 200; }
+  #share-modal.visible { display: flex; }
+  #share-box { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 12px; padding: 24px 28px; width: 320px; display: flex; flex-direction: column; gap: 14px; }
+  #share-url { background: #0f0f0f; border: 1px solid #2a2a2a; border-radius: 7px; padding: 9px 12px; font-size: 12px; color: #666; font-family: monospace; word-break: break-all; }
+  #share-box .share-actions { display: flex; gap: 8px; }
+  #share-box .share-actions button { flex: 1; padding: 8px; border-radius: 6px; font-size: 13px; cursor: pointer; }
+
+  /* ── 响应式 ── */
+  @media (max-width: 700px) {
+    #sidebar { width: 72px; }
+    #editor { width: 180px; }
+    .btn span { display: none; }
+  }
+  @media (max-width: 500px) {
+    #sidebar { display: none; }
+    #editor { width: 160px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- 顶栏 -->
+<div id="topbar">
+  <div class="logo">
+    <div class="logo-box"><div class="logo-inner"></div></div>
+    Slide
+    <span class="slide-count" id="slide-count">3 页</span>
+  </div>
+  <div class="top-actions">
+    <button class="btn" onclick="startPresent()">▶ <span>演示</span></button>
+    <button class="btn btn-primary" onclick="showShare()">分享</button>
+  </div>
+</div>
+
+<!-- 主体 -->
+<div id="main">
+
+  <!-- 左：页面列表 -->
+  <div id="sidebar">
+    <div id="slide-list"></div>
+    <button id="add-slide" onclick="addSlide()">+ 新页面</button>
+  </div>
+
+  <!-- 中：预览 -->
+  <div id="preview-area">
+    <div id="slide-preview"></div>
+    <div id="auto-label"></div>
+  </div>
+
+  <!-- 右：编辑 -->
+  <div id="editor">
+    <!-- 图片区（顶部固定） -->
+    <div id="img-panel">
+      <div class="label">图片</div>
+      <div id="upload-zone"
+        onclick="document.getElementById('file-input').click()"
+        ondragover="event.preventDefault(); this.classList.add('dragover')"
+        ondragleave="this.classList.remove('dragover')"
+        ondrop="handleDrop(event)">
+        <div class="icon">🖼</div>
+        <div>点击上传 或 拖入</div>
+      </div>
+      <input type="file" id="file-input" accept="image/*" style="display:none" onchange="handleFileInput(event)">
+      <div id="img-preview-wrap" style="display:none">
+        <img id="img-preview" src="" alt="">
+        <button id="remove-img" onclick="removeImage()">移除</button>
+      </div>
+      <input type="url" id="img-url-input" placeholder="或粘贴图片链接 https://..." oninput="handleUrlInput()" style="margin-top:7px">
+      <div id="auto-toggle-row" style="display:none">
+        <span>自动判断排版</span>
+        <div class="toggle on" id="auto-toggle" onclick="toggleAuto()">
+          <div class="knob"></div>
+        </div>
+      </div>
+      <div id="auto-result"></div>
+      <div id="manual-layout">
+        <div class="label" style="margin-top:6px">手动选排版</div>
+        <div class="layout-grid">
+          <button class="layout-btn" onclick="setLayout('img-full')">全屏叠字</button>
+          <button class="layout-btn" onclick="setLayout('img-left')">图左文右</button>
+          <button class="layout-btn" onclick="setLayout('img-right')">文左图右</button>
+          <button class="layout-btn" onclick="setLayout('img-top')">图上文下</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 文字编辑区 -->
+    <div id="editor-scroll">
+      <div id="text-layout-section">
+        <div class="label">布局</div>
+        <div class="layout-grid" id="text-layout-grid">
+          <button class="layout-btn" onclick="setLayout('title')">标题页</button>
+          <button class="layout-btn" onclick="setLayout('bullets')">要点</button>
+          <button class="layout-btn" onclick="setLayout('split')">左右分栏</button>
+          <button class="layout-btn" onclick="setLayout('quote')">金句</button>
+        </div>
+      </div>
+      <div>
+        <div class="label" id="title-label">标题</div>
+        <textarea id="input-title" rows="3" oninput="updateCurrent('title', this.value)"></textarea>
+      </div>
+      <div id="body-section">
+        <div class="label" id="body-label">正文内容</div>
+        <textarea id="input-body" rows="6" oninput="updateCurrent('body', this.value)"></textarea>
+        <div id="body-hint" style="font-size:10px;color:#555;margin-top:4px"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 演示模式 -->
+<div id="present-mode">
+  <div id="present-slide"></div>
+  <div id="present-nav">
+    <button id="btn-prev" onclick="presentGo(-1)">← 上一页</button>
+    <span id="present-counter">1 / 3</span>
+    <button id="btn-next" onclick="presentGo(1)">下一页 →</button>
+  </div>
+  <div id="dot-nav"></div>
+  <button id="exit-present" onclick="endPresent()">退出 ✕</button>
+</div>
+
+<!-- 分享弹窗 -->
+<div id="share-modal" onclick="if(event.target===this)hideShare()">
+  <div id="share-box">
+    <div style="font-size:16px;font-weight:700">分享你的演示</div>
+    <div id="share-url">slide.app/share/xk3m9p</div>
+    <div class="share-actions">
+      <button class="btn" onclick="hideShare()">关闭</button>
+      <button class="btn btn-primary" onclick="copyLink()">复制链接</button>
+    </div>
+    <div style="font-size:11px;color:#555;text-align:center">对方打开后可一页一页翻阅</div>
+  </div>
+</div>
+
+<script>
+// ── 数据 ──
+let slides = [
+  { id: 1, layout: 'title', title: '写下你的标题', body: '副标题 / 一句话说明', image: null, autoLayout: true },
+  { id: 2, layout: 'bullets', title: '第二页', body: '• 第一个要点\n• 第二个要点\n• 第三个要点', image: null, autoLayout: true },
+  { id: 3, layout: 'bullets', title: '第三页', body: '• 要点一\n• 要点二', image: null, autoLayout: true },
+];
+let activeId = 1;
+let presentIndex = 0;
+
+function getActive() { return slides.find(s => s.id === activeId); }
+
+// ── 自动排版逻辑 ──
+function autoLayout(slide) {
+  if (!slide.image) return slide.layout;
+  const total = (slide.title || '').length + (slide.body || '').length;
+  if (total < 25) return 'img-full';
+  if ((slide.body || '').length > 70) return 'img-left';
+  return 'img-right';
+}
+const LAYOUT_NAMES = { 'img-full':'全屏叠字', 'img-left':'图左文右', 'img-right':'文左图右', 'img-top':'图上文下', 'title':'标题页', 'bullets':'要点', 'split':'左右分栏', 'quote':'金句' };
+
+// ── 渲染幻灯片内容 ──
+function renderSlideContent(slide, container, small) {
+  const layout = slide.autoLayout && slide.image ? autoLayout(slide) : slide.layout;
+  const img = slide.image;
+  const fs = small ? 0.45 : 1;
+  container.innerHTML = '';
+  container.style.background = '#0f0f0f';
+  container.style.display = 'flex';
+  container.style.position = 'relative';
+
+  if (img && layout === 'img-full') {
+    container.innerHTML = `
+      <img src="${img}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">
+      <div style="position:absolute;inset:0;background:linear-gradient(to top,rgba(0,0,0,0.72) 0%,transparent 55%)"></div>
+      <div style="position:absolute;bottom:${8*fs}%;left:${8*fs}%;right:${8*fs}%">
+        <div style="font-size:${small?'8px':'clamp(18px,3.2vw,36px)'};font-weight:800;color:#fff;font-family:Georgia,serif;line-height:1.2">${slide.title||''}</div>
+        ${slide.body ? `<div style="font-size:${small?'6px':'clamp(11px,1.4vw,15px)'};color:rgba(255,255,255,0.7);margin-top:${small?'3px':'8px'}">${slide.body}</div>` : ''}
+      </div>`;
+    return;
+  }
+
+  if (img && layout === 'img-top') {
+    container.style.flexDirection = 'column';
+    container.innerHTML = `
+      <div style="height:52%;overflow:hidden;flex-shrink:0"><img src="${img}" style="width:100%;height:100%;object-fit:cover"></div>
+      <div style="flex:1;padding:${small?'4px 8px':'5% 8%'};display:flex;flex-direction:column;justify-content:center">
+        <div style="font-size:${small?'7px':'clamp(14px,2.2vw,24px)'};font-weight:700;color:#e8e0d0;font-family:Georgia,serif">${slide.title||''}</div>
+        ${slide.body ? `<div style="font-size:${small?'5.5px':'clamp(10px,1.4vw,14px)'};color:rgba(232,224,208,0.65);margin-top:${small?'2px':'8px'};line-height:1.6">${slide.body.replace(/\n/g,'<br>')}</div>` : ''}
+      </div>`;
+    return;
+  }
+
+  if (img && (layout === 'img-left' || layout === 'img-right')) {
+    const imgFirst = layout === 'img-left';
+    container.style.flexDirection = 'row';
+    const imgDiv = `<div style="width:45%;overflow:hidden;flex-shrink:0"><img src="${img}" style="width:100%;height:100%;object-fit:cover"></div>`;
+    const txtDiv = `<div style="flex:1;padding:${small?'5px 6px':'8% 6%'};display:flex;flex-direction:column;justify-content:center;border-${imgFirst?'left':'right'}:1px solid #2a2a2a">
+      <div style="font-size:${small?'7px':'clamp(13px,2vw,22px)'};font-weight:700;color:#e8e0d0;font-family:Georgia,serif;line-height:1.25">${slide.title||''}</div>
+      ${slide.body ? `<div style="font-size:${small?'5.5px':'clamp(10px,1.3vw,14px)'};color:rgba(232,224,208,0.65);margin-top:${small?'3px':'10px'};line-height:1.65">${slide.body.replace(/•\s?/g,'').replace(/\n/g,'<br>')}</div>` : ''}
+    </div>`;
+    container.innerHTML = imgFirst ? imgDiv + txtDiv : txtDiv + imgDiv;
+    return;
+  }
+
+  // 纯文字布局
+  if (layout === 'split') {
+    const lines = (slide.body||'').split('\n').filter(Boolean);
+    container.style.flexDirection = 'row';
+    container.innerHTML = `
+      <div style="flex:1;border-right:1px solid #2a2a2a;padding:${small?'6px':'10% 7%'};display:flex;flex-direction:column;justify-content:center">
+        <div style="font-size:${small?'7.5px':'clamp(14px,2.5vw,26px)'};font-weight:800;color:#e8e0d0;font-family:Georgia,serif;line-height:1.2">${slide.title||''}</div>
+      </div>
+      <div style="flex:1;padding:${small?'6px':'10% 7%'};display:flex;flex-direction:column;justify-content:center;gap:${small?'2px':'8px'}">
+        ${lines.map(l=>`<div style="font-size:${small?'5.5px':'clamp(10px,1.4vw,15px)'};color:rgba(232,224,208,0.8);line-height:1.6">${l.replace(/^[•\-]\s?/,'')}</div>`).join('')}
+      </div>`;
+    return;
+  }
+
+  if (layout === 'quote') {
+    container.style.alignItems = 'center';
+    container.style.justifyContent = 'center';
+    container.innerHTML = `
+      <div style="padding:8% 12%;text-align:center;display:flex;flex-direction:column;align-items:center;gap:${small?'4px':'14px'}">
+        <div style="font-size:${small?'22px':'clamp(36px,7vw,64px)'};color:#e8e0d0;opacity:0.2;font-family:Georgia,serif;line-height:0.6">"</div>
+        <div style="font-size:${small?'8px':'clamp(16px,2.8vw,30px)'};font-weight:700;color:#e8e0d0;font-family:Georgia,serif;line-height:1.25;max-width:75%">${slide.title||''}</div>
+        ${slide.body ? `<div style="font-size:${small?'6px':'clamp(10px,1.3vw,13px)'};color:#666">— ${slide.body}</div>` : ''}
+      </div>`;
+    return;
+  }
+
+  // title / bullets
+  const isTitle = layout === 'title';
+  const lines = (slide.body||'').split('\n').filter(Boolean);
+  container.style.flexDirection = 'column';
+  container.style.alignItems = isTitle ? 'center' : 'flex-start';
+  container.style.justifyContent = isTitle ? 'center' : 'flex-start';
+  const pad = small ? '14px 10px' : (isTitle ? '8% 10%' : '7% 8%');
+  let html = `<div style="padding:${pad};width:100%;height:100%;display:flex;flex-direction:column;align-items:${isTitle?'center':'flex-start'};justify-content:${isTitle?'center':'flex-start'};gap:${small?'4px':'12px'}">`;
+  html += `<div style="font-size:${small?'8px':(isTitle?'clamp(20px,3.5vw,38px)':'clamp(16px,2.4vw,26px)')};font-weight:${isTitle?800:700};color:#e8e0d0;font-family:Georgia,serif;line-height:1.2;text-align:${isTitle?'center':'left'}">${slide.title||''}</div>`;
+  if (slide.body && !isTitle) {
+    html += `<div style="display:flex;flex-direction:column;gap:${small?'2px':'8px'};width:100%">`;
+    lines.forEach(line => {
+      const isBullet = line.startsWith('•') || line.startsWith('-');
+      html += `<div style="display:flex;align-items:flex-start;gap:${small?'4px':'8px'}">`;
+      if (isBullet) html += `<div style="width:${small?'3':'4'}px;height:${small?'3':'4'}px;border-radius:50%;background:#e8e0d0;opacity:0.4;margin-top:${small?'4':'8'}px;flex-shrink:0"></div>`;
+      html += `<div style="font-size:${small?'5.5px':'clamp(11px,1.5vw,16px)'};color:rgba(232,224,208,0.7);line-height:1.65">${isBullet?line.replace(/^[•\-]\s?/,''):line}</div></div>`;
+    });
+    html += '</div>';
+  } else if (slide.body && isTitle) {
+    html += `<div style="font-size:${small?'6px':'clamp(11px,1.5vw,16px)'};color:rgba(232,224,208,0.55);text-align:center">${slide.body}</div>`;
+  }
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+// ── 渲染整个UI ──
+function render() {
+  const slide = getActive();
+
+  // 页面列表
+  const list = document.getElementById('slide-list');
+  list.innerHTML = '';
+  slides.forEach((s, i) => {
+    const div = document.createElement('div');
+    div.className = 'slide-thumb' + (s.id === activeId ? ' active' : '');
+    div.innerHTML = `<span class="thumb-num">${String(i+1).padStart(2,'0')}</span><span class="thumb-title">${s.title||''}</span>`;
+    if (s.image) {
+      const bg = document.createElement('img');
+      bg.className = 'thumb-bg';
+      bg.src = s.image;
+      div.insertBefore(bg, div.firstChild);
+    }
+    if (slides.length > 1) {
+      const del = document.createElement('button');
+      del.className = 'del-btn';
+      del.innerHTML = '✕';
+      del.onclick = (e) => { e.stopPropagation(); deleteSlide(s.id); };
+      div.appendChild(del);
+    }
+    div.onclick = () => { activeId = s.id; render(); };
+    list.appendChild(div);
+  });
+
+  document.getElementById('slide-count').textContent = slides.length + ' 页';
+
+  // 预览
+  const preview = document.getElementById('slide-preview');
+  renderSlideContent(slide, preview, false);
+
+  // 自动排版提示
+  const autoLabel = document.getElementById('auto-label');
+  if (slide.image && slide.autoLayout) {
+    const eff = autoLayout(slide);
+    autoLabel.textContent = '✦ 自动排版：' + (LAYOUT_NAMES[eff] || eff);
+    autoLabel.style.display = 'block';
+  } else {
+    autoLabel.style.display = 'none';
+  }
+
+  // 编辑器
+  document.getElementById('input-title').value = slide.title || '';
+  document.getElementById('input-body').value = slide.body || '';
+
+  // 图片区
+  const hasImg = !!slide.image;
+  document.getElementById('upload-zone').style.display = hasImg ? 'none' : 'block';
+  document.getElementById('img-preview-wrap').style.display = hasImg ? 'block' : 'none';
+  if (hasImg) document.getElementById('img-preview').src = slide.image;
+  document.getElementById('img-url-input').value = '';
+  document.getElementById('auto-toggle-row').style.display = hasImg ? 'flex' : 'none';
+  document.getElementById('auto-result').style.display = hasImg && slide.autoLayout ? 'block' : 'none';
+  if (hasImg && slide.autoLayout) {
+    document.getElementById('auto-result').textContent = '● 当前：' + (LAYOUT_NAMES[autoLayout(slide)] || '');
+  }
+
+  const tog = document.getElementById('auto-toggle');
+  tog.className = 'toggle ' + (slide.autoLayout ? 'on' : 'off');
+  document.getElementById('manual-layout').style.display = (!slide.autoLayout && hasImg) ? 'block' : 'none';
+  document.getElementById('text-layout-section').style.display = hasImg ? 'none' : 'block';
+
+  // 布局按钮高亮
+  document.querySelectorAll('#text-layout-grid .layout-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.textContent === LAYOUT_NAMES[slide.layout]);
+  });
+  document.querySelectorAll('#manual-layout .layout-btn').forEach(btn => {
+    const map = {'全屏叠字':'img-full','图左文右':'img-left','文左图右':'img-right','图上文下':'img-top'};
+    btn.classList.toggle('active', map[btn.textContent] === slide.layout);
+  });
+
+  // 标签文字
+  const isQuote = slide.layout === 'quote';
+  document.getElementById('title-label').textContent = isQuote ? '金句内容' : '标题';
+  document.getElementById('body-label').textContent = slide.layout === 'title' ? '副标题' : '正文内容';
+  document.getElementById('body-section').style.display = 'block';
+  document.getElementById('body-hint').textContent = slide.layout === 'bullets' ? '每行一个要点，用 • 开头' : '';
+}
+
+// ── 操作 ──
+function updateCurrent(field, val) {
+  const s = getActive();
+  if (s) { s[field] = val; render(); }
+}
+
+function setLayout(id) {
+  const s = getActive();
+  if (s) { s.layout = id; render(); }
+}
+
+function addSlide() {
+  const id = Date.now();
+  slides.push({ id, layout: 'bullets', title: '新页面', body: '• 要点一\n• 要点二', image: null, autoLayout: true });
+  activeId = id;
+  render();
+}
+
+function deleteSlide(id) {
+  const idx = slides.findIndex(s => s.id === id);
+  slides = slides.filter(s => s.id !== id);
+  activeId = slides[Math.max(0, idx - 1)].id;
+  render();
+}
+
+function handleFileInput(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => { getActive().image = ev.target.result; render(); };
+  reader.readAsDataURL(file);
+}
+
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('upload-zone').classList.remove('dragover');
+  const file = e.dataTransfer.files[0];
+  if (!file || !file.type.startsWith('image/')) return;
+  const reader = new FileReader();
+  reader.onload = ev => { getActive().image = ev.target.result; render(); };
+  reader.readAsDataURL(file);
+}
+
+function handleUrlInput() {
+  const url = document.getElementById('img-url-input').value.trim();
+  if (url.startsWith('http')) { getActive().image = url; render(); }
+}
+
+function removeImage() {
+  getActive().image = null;
+  document.getElementById('img-url-input').value = '';
+  render();
+}
+
+function toggleAuto() {
+  const s = getActive();
+  s.autoLayout = !s.autoLayout;
+  render();
+}
+
+// ── 演示模式 ──
+function startPresent() {
+  presentIndex = slides.findIndex(s => s.id === activeId) || 0;
+  renderPresent();
+  document.getElementById('present-mode').classList.add('visible');
+  document.getElementById('present-mode').focus();
+}
+
+function endPresent() {
+  document.getElementById('present-mode').classList.remove('visible');
+}
+
+function presentGo(d) {
+  presentIndex = Math.max(0, Math.min(slides.length - 1, presentIndex + d));
+  renderPresent();
+}
+
+function renderPresent() {
+  const slide = slides[presentIndex];
+  const container = document.getElementById('present-slide');
+  renderSlideContent(slide, container, false);
+  document.getElementById('present-counter').textContent = (presentIndex + 1) + ' / ' + slides.length;
+  document.getElementById('btn-prev').disabled = presentIndex === 0;
+  document.getElementById('btn-next').disabled = presentIndex === slides.length - 1;
+  const dots = document.getElementById('dot-nav');
+  dots.innerHTML = slides.map((_, i) => `<div class="dot${i === presentIndex ? ' active' : ''}" style="width:${i===presentIndex?20:6}px" onclick="presentIndex=${i};renderPresent()"></div>`).join('');
+}
+
+document.getElementById('present-mode').addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') presentGo(1);
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') presentGo(-1);
+  if (e.key === 'Escape') endPresent();
+});
+
+// ── 分享 ──
+function showShare() { document.getElementById('share-modal').classList.add('visible'); }
+function hideShare() { document.getElementById('share-modal').classList.remove('visible'); }
+function copyLink() {
+  navigator.clipboard.writeText('slide.app/share/xk3m9p').catch(()=>{});
+  document.querySelector('#share-box .btn-primary').textContent = '已复制 ✓';
+  setTimeout(() => document.querySelector('#share-box .btn-primary').textContent = '复制链接', 2000);
+}
+
+// 初始化
+render();
+</script>
+</body>
+</html>
+ENDOFFILE
+echo "done"
